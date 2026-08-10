@@ -1,4 +1,4 @@
-name: Test Project Fields
+name: Test Project Items
 
 on:
   workflow_dispatch:
@@ -16,13 +16,11 @@ jobs:
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 
-      - name: Get project fields
+      - name: Get project items
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          echo "Project: General Sprints"
-          echo ""
-
-          gh project field-list 4 \
+          echo "Project items:"
+          gh project item-list 4 \
             --owner "${{ github.repository_owner }}" \
             --format json
