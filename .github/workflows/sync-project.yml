@@ -1,6 +1,9 @@
 name: Sync GitHub Project to Google Sheets
 
 on:
+  schedule:
+    - cron: "*/5 * * * *"
+
   workflow_dispatch:
 
 jobs:
