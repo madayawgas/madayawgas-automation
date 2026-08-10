@@ -11,6 +11,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Show repository structure
+        run: |
+          echo "Repository:"
+          echo "${{ github.repository }}"
+
+          echo ""
+          echo "Branch:"
+          echo "${{ github.ref }}"
+
+          echo ""
+          echo "Working directory:"
+          pwd
+
+          echo ""
+          echo "Files:"
+          find . -maxdepth 3 -type f | sort
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
