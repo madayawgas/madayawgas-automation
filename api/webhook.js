@@ -38,8 +38,6 @@ module.exports = async (req, res) => {
      * Vercel normally parses JSON request bodies for us.
      * GitHub's signature, however, must be calculated from
      * the ORIGINAL request body.
-     *
-     * We therefore use the raw body supplied by Vercel.
      */
     const rawBody =
       typeof req.body === "string" ? req.body : JSON.stringify(req.body);
@@ -75,10 +73,39 @@ module.exports = async (req, res) => {
 
     console.log("Project item changed.");
 
-    /*
-     * TODO:
-     * Trigger the existing GitHub Actions sync workflow here.
-     */
+    const owner = "madayawgas";
+    const repo = "madayawgas-automation";
+    const workflow = "sync-project.yml";
+    const ref = "main";
+
+    const response = await fetch(
+      `https://api.github.com/repos/${owner}/${repo}/actions/workflows/${workflow}/dispatches`,
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/vnd.github+json",
+          Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+          "X-GitHub-Api-Version": "2022-11-28",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          ref,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+
+      console.error("Failed to trigger GitHub Actions workflow:", {
+        status: response.status,
+        response: errorText,
+      });
+
+      return res.status(500).send("Failed to trigger sync workflow");
+    }
+
+    console.log("Sync workflow triggered successfully.");
 
     return res.status(200).send("Webhook received");
   } catch (error) {
