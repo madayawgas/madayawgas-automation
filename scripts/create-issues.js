@@ -175,15 +175,17 @@ function createGitHubIssue(repo, title) {
     repo,
     "--title",
     title,
+    "--body",
+    "Created from the Sprint Backlog.",
   ]);
 
   const match = output.match(
-    /https:\/\/github\.com\/[^/]+\/[^/]+\/issues\/(\d+)\s*$/
+    /https:\/\/github\.com\/[^/]+\/[^/]+\/issues\/(\d+)\s*$/,
   );
 
   if (!match) {
     throw new Error(
-      `Could not determine issue number from GitHub output:\n${output}`
+      `Could not determine issue number from GitHub output:\n${output}`,
     );
   }
 
