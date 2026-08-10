@@ -17,6 +17,17 @@ const COLUMNS = {
   status: 11,       // L
 };
 
+const MEMBER_NAMES = {
+  VonGiedy: "Aguilar",
+  "Gianne-Pesana": "Pesaña",
+  sakrsvelo: "Ravelo",
+  yojaygio: "Villegas",
+  KiaraBiancaCampos: "Campos",
+  fairychin23: "Miñoza",
+  LeshkaAlcontin: "Alcontin",
+};
+
+
 const GITHUB_QUERY = `
 query($organization: String!, $projectNumber: Int!, $cursor: String) {
   organization(login: $organization) {
@@ -194,7 +205,9 @@ function getToday() {
 }
 
 function getAssignees(assignees) {
-  return assignees.join(", ");
+  return assignees
+    .map((username) => MEMBER_NAMES[username] || username)
+    .join(", ");
 }
 
 async function updateRow(
