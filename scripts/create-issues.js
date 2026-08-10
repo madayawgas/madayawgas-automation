@@ -6,10 +6,24 @@ const PROJECT_NUMBER = 4;
 const SHEET_NAME = "Sprint Backlog";
 
 // Sprint Backlog columns, zero-based.
+//
+// A = #
+// B = Sprint
+// C = PB ID
+// D = Github Issue
+// E = Github Repo
+// F = Module
+// G = Functionality
+// H = User Story
+// I = Date Start
+// J = Date End
+// K = Assigned
+// L = Status
 const COLUMNS = {
   pbId: 2,          // C
   githubIssue: 3,   // D
   githubRepo: 4,    // E
+  module: 5,        // F
   functionality: 6, // G
   userStory: 7,     // H
 };
@@ -43,11 +57,15 @@ async function getSheetData(sheets, spreadsheetId) {
 }
 
 /*
- * Get Project #4 information, including:
+ * Get Project #4 information.
+ *
+ * We need:
+ *
  * - Project ID
  * - Status field
  * - Product Backlog status option
- * - User Story field
+ * - Module text field
+ * - User Story text field
  */
 function getProjectInfo() {
   const query = `
@@ -112,6 +130,9 @@ function getProjectInfo() {
     );
   }
 
+  /*
+   * Find Status field.
+   */
   const statusField = project.fields.nodes.find(
     (field) =>
       field.__typename === "ProjectV2SingleSelectField" &&
@@ -124,6 +145,9 @@ function getProjectInfo() {
     );
   }
 
+  /*
+   * Find Product Backlog status option.
+   */
   const productBacklogOption = statusField.options.find(
     (option) => option.name === "Product Backlog"
   );
@@ -134,10 +158,28 @@ function getProjectInfo() {
     );
   }
 
+  /*
+   * Find Module text field.
+   */
+  const moduleField = project.fields.nodes.find(
+    (field) =>
+      field.__typename === "ProjectV2Field" &&
+      field.name === "Module"
+  );
+
+  if (!moduleField) {
+    throw new Error(
+      `Could not find the "Module" text field in Project #${PROJECT_NUMBER}.`
+    );
+  }
+
+  /*
+   * Find User Story text field.
+   */
   const userStoryField = project.fields.nodes.find(
     (field) =>
-      field.name === "User Story" &&
-      field.__typename === "ProjectV2Field"
+      field.__typename === "ProjectV2Field" &&
+      field.name === "User Story"
   );
 
   if (!userStoryField) {
@@ -152,6 +194,7 @@ function getProjectInfo() {
     statusFieldId: statusField.id,
     productBacklogOptionId: productBacklogOption.id,
 
+    moduleFieldId: moduleField.id,
     userStoryFieldId: userStoryField.id,
   };
 }
@@ -160,13 +203,16 @@ function getProjectInfo() {
  * Create a GitHub Issue.
  *
  * Returns:
+ *
  * {
  *   number,
  *   url
  * }
  */
 function createGitHubIssue(repo, title) {
-  console.log(`Creating issue in ${repo}: "${title}"`);
+  console.log(
+    `Creating issue in ${repo}: "${title}"`
+  );
 
   const output = runGitHub([
     "issue",
@@ -180,12 +226,12 @@ function createGitHubIssue(repo, title) {
   ]);
 
   const match = output.match(
-    /https:\/\/github\.com\/[^/]+\/[^/]+\/issues\/(\d+)\s*$/,
+    /https:\/\/github\.com\/[^/]+\/[^/]+\/issues\/(\d+)\s*$/
   );
 
   if (!match) {
     throw new Error(
-      `Could not determine issue number from GitHub output:\n${output}`,
+      `Could not determine issue number from GitHub output:\n${output}`
     );
   }
 
@@ -370,19 +416,25 @@ function setProjectStatus(
 }
 
 /*
- * Set User Story text field.
+ * Set a Project text field.
+ *
+ * This is used for:
+ *
+ * - Module
+ * - User Story
  */
-function setUserStory(
+function setProjectTextField(
   projectId,
   itemId,
   fieldId,
-  userStory
+  value,
+  fieldName
 ) {
   /*
-   * Empty User Story is valid, but there is no reason
+   * Empty text fields are valid, but there is no reason
    * to make a GitHub API call for an empty value.
    */
-  if (!userStory) {
+  if (!value) {
     return;
   }
 
@@ -422,14 +474,14 @@ function setUserStory(
     "-f",
     `fieldId=${fieldId}`,
     "-f",
-    `text=${userStory}`,
+    `text=${value}`,
   ]);
 
   const response = JSON.parse(output);
 
   if (response.errors) {
     throw new Error(
-      `Failed to set User Story:\n${JSON.stringify(
+      `Failed to set ${fieldName}:\n${JSON.stringify(
         response.errors,
         null,
         2
@@ -513,11 +565,10 @@ async function main() {
 
   /*
    * Get Project information once.
-   *
-   * We don't want to repeatedly query the project
-   * for every PB.
    */
-  console.log("\nReading GitHub Project configuration...");
+  console.log(
+    "\nReading GitHub Project configuration..."
+  );
 
   const project = getProjectInfo();
 
@@ -526,7 +577,11 @@ async function main() {
   );
 
   console.log(
-    `Status: Product Backlog`
+    `Status field: ${project.statusFieldId}`
+  );
+
+  console.log(
+    `Module field: ${project.moduleFieldId}`
   );
 
   console.log(
@@ -553,6 +608,9 @@ async function main() {
     const githubRepo =
       row[COLUMNS.githubRepo]?.trim() || "";
 
+    const module =
+      row[COLUMNS.module]?.trim() || "";
+
     const functionality =
       row[COLUMNS.functionality]?.trim() || "";
 
@@ -576,7 +634,8 @@ async function main() {
     /*
      * 2. GitHub Issue must be blank.
      *
-     * This prevents duplicates.
+     * This prevents duplicates when the issue
+     * has already been successfully linked.
      */
     if (githubIssue) {
       console.log(
@@ -602,7 +661,7 @@ async function main() {
     /*
      * 4. Functionality must exist.
      *
-     * This becomes the issue title.
+     * This becomes the GitHub Issue title.
      */
     if (!functionality) {
       console.log(
@@ -624,6 +683,8 @@ async function main() {
     console.log(`PB ID: ${pbId}`);
     console.log(`Repository: ${githubRepo}`);
     console.log(`Title: ${functionality}`);
+    console.log(`Module: ${module || "(empty)"}`);
+    console.log(`User Story: ${userStory || "(empty)"}`);
 
     /*
      * 1. Create GitHub Issue.
@@ -673,13 +734,37 @@ async function main() {
     );
 
     /*
-     * 5. Set User Story.
+     * 5. Set Module.
+     *
+     * Sprint Backlog column F
+     * → GitHub Project Module field
      */
-    setUserStory(
+    setProjectTextField(
+      project.projectId,
+      projectItemId,
+      project.moduleFieldId,
+      module,
+      "Module"
+    );
+
+    if (module) {
+      console.log(
+        `Set Module for #${issue.number}: ${module}`
+      );
+    }
+
+    /*
+     * 6. Set User Story.
+     *
+     * Sprint Backlog column H
+     * → GitHub Project User Story field
+     */
+    setProjectTextField(
       project.projectId,
       projectItemId,
       project.userStoryFieldId,
-      userStory
+      userStory,
+      "User Story"
     );
 
     if (userStory) {
@@ -689,7 +774,9 @@ async function main() {
     }
 
     /*
-     * 6. Write issue number back to Sheets.
+     * 7. Write issue number back to Sheets.
+     *
+     * Sprint Backlog column D.
      */
     await writeIssueNumber(
       sheets,
