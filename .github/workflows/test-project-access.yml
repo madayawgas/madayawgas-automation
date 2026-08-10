@@ -11,12 +11,13 @@ jobs:
       contents: read
 
     steps:
-      - name: Check GitHub CLI
-        run: gh --version
-
       - name: List organization projects
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          echo "Organization: ${{ github.repository_owner }}"
+          echo ""
+          echo "Projects:"
           gh project list \
-            --owner "${{ github.repository_owner }}"
+            --owner "${{ github.repository_owner }}" \
+            --format json
