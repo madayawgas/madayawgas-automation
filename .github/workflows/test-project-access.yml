@@ -1,0 +1,22 @@
+name: Test Project Access
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check GitHub CLI
+        run: gh --version
+
+      - name: List organization projects
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh project list \
+            --owner "${{ github.repository_owner }}"
