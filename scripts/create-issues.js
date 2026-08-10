@@ -6,27 +6,57 @@ const PROJECT_NUMBER = 4;
 const SHEET_NAME = "Sprint Backlog";
 
 // Sprint Backlog columns, zero-based.
-//
-// A = #
-// B = Sprint
-// C = PB ID
-// D = Github Issue
-// E = Github Repo
-// F = Module
-// G = Functionality
-// H = User Story
-// I = Date Start
-// J = Date End
-// K = Assigned
-// L = Status
 const COLUMNS = {
-  pbId: 2,          // C
-  githubIssue: 3,   // D
-  githubRepo: 4,    // E
-  module: 5,        // F
+  pbId: 2, // C
+  githubIssue: 3, // D
+  githubRepo: 4, // E
+  module: 5, // F
   functionality: 6, // G
-  userStory: 7,     // H
+  userStory: 7, // H
 };
+
+/*
+ * Google Sheets error values that should be treated
+ * as missing/empty values.
+ */
+const SPREADSHEET_ERRORS = new Set([
+  "#N/A",
+  "#REF!",
+  "#VALUE!",
+  "#DIV/0!",
+  "#NAME?",
+  "#NUM!",
+  "#NULL!",
+]);
+
+/*
+ * Clean a value read from Google Sheets.
+ *
+ * Converts:
+ *   blank       → ""
+ *   "#N/A"      → ""
+ *   "#REF!"     → ""
+ *   etc.
+ *
+ * Everything else is returned as a trimmed string.
+ */
+function cleanCellValue(value) {
+  if (value === undefined || value === null) {
+    return "";
+  }
+
+  const normalized = String(value).trim();
+
+  if (!normalized) {
+    return "";
+  }
+
+  if (SPREADSHEET_ERRORS.has(normalized.toUpperCase())) {
+    return "";
+  }
+
+  return normalized;
+}
 
 function runGitHub(args) {
   return execFileSync("gh", args, {
@@ -35,15 +65,11 @@ function runGitHub(args) {
 }
 
 function getGoogleAuth() {
-  const credentials = JSON.parse(
-    process.env.GOOGLE_SERVICE_ACCOUNT
-  );
+  const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
 
   return new google.auth.GoogleAuth({
     credentials,
-    scopes: [
-      "https://www.googleapis.com/auth/spreadsheets",
-    ],
+    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
   });
 }
 
@@ -60,12 +86,10 @@ async function getSheetData(sheets, spreadsheetId) {
  * Get Project #4 information.
  *
  * We need:
- *
- * - Project ID
- * - Status field
- * - Product Backlog status option
- * - Module text field
- * - User Story text field
+ *   - Project ID
+ *   - Status field
+ *   - Product Backlog status option
+ *   - Module field
  */
 function getProjectInfo() {
   const query = `
@@ -114,11 +138,7 @@ function getProjectInfo() {
 
   if (response.errors) {
     throw new Error(
-      `GitHub GraphQL error:\n${JSON.stringify(
-        response.errors,
-        null,
-        2
-      )}`
+      `GitHub GraphQL error:\n${JSON.stringify(response.errors, null, 2)}`,
     );
   }
 
@@ -126,7 +146,7 @@ function getProjectInfo() {
 
   if (!project) {
     throw new Error(
-      `Project #${PROJECT_NUMBER} was not found in ${ORGANIZATION}.`
+      `Project #${PROJECT_NUMBER} was not found in ${ORGANIZATION}.`,
     );
   }
 
@@ -136,12 +156,12 @@ function getProjectInfo() {
   const statusField = project.fields.nodes.find(
     (field) =>
       field.__typename === "ProjectV2SingleSelectField" &&
-      field.name === "Status"
+      field.name === "Status",
   );
 
   if (!statusField) {
     throw new Error(
-      `Could not find the Status field in Project #${PROJECT_NUMBER}.`
+      `Could not find the Status field in Project #${PROJECT_NUMBER}.`,
     );
   }
 
@@ -149,42 +169,26 @@ function getProjectInfo() {
    * Find Product Backlog status option.
    */
   const productBacklogOption = statusField.options.find(
-    (option) => option.name === "Product Backlog"
+    (option) => option.name === "Product Backlog",
   );
 
   if (!productBacklogOption) {
-    throw new Error(
-      `Could not find "Product Backlog" in the Status field.`
-    );
+    throw new Error(`Could not find "Product Backlog" in the Status field.`);
   }
 
   /*
-   * Find Module text field.
+   * Find Module field.
    */
   const moduleField = project.fields.nodes.find(
     (field) =>
-      field.__typename === "ProjectV2Field" &&
-      field.name === "Module"
+      field.name === "Module" &&
+      (field.__typename === "ProjectV2Field" ||
+        field.__typename === "ProjectV2SingleSelectField"),
   );
 
   if (!moduleField) {
     throw new Error(
-      `Could not find the "Module" text field in Project #${PROJECT_NUMBER}.`
-    );
-  }
-
-  /*
-   * Find User Story text field.
-   */
-  const userStoryField = project.fields.nodes.find(
-    (field) =>
-      field.__typename === "ProjectV2Field" &&
-      field.name === "User Story"
-  );
-
-  if (!userStoryField) {
-    throw new Error(
-      `Could not find the "User Story" text field in Project #${PROJECT_NUMBER}.`
+      `Could not find the "Module" field in Project #${PROJECT_NUMBER}.`,
     );
   }
 
@@ -195,24 +199,32 @@ function getProjectInfo() {
     productBacklogOptionId: productBacklogOption.id,
 
     moduleFieldId: moduleField.id,
-    userStoryFieldId: userStoryField.id,
   };
 }
 
 /*
  * Create a GitHub Issue.
  *
- * Returns:
+ * Functionality → Issue title
+ * User Story    → Issue body/description
  *
+ * Returns:
  * {
  *   number,
  *   url
  * }
  */
-function createGitHubIssue(repo, title) {
-  console.log(
-    `Creating issue in ${repo}: "${title}"`
-  );
+function createGitHubIssue(repo, title, userStory) {
+  console.log(`Creating issue in ${repo}: "${title}"`);
+
+  /*
+   * Use the User Story as the GitHub Issue
+   * description.
+   *
+   * If User Story is empty, use a simple
+   * fallback description.
+   */
+  const body = userStory || "Created from the Sprint Backlog.";
 
   const output = runGitHub([
     "issue",
@@ -222,16 +234,16 @@ function createGitHubIssue(repo, title) {
     "--title",
     title,
     "--body",
-    "Created from the Sprint Backlog.",
+    body,
   ]);
 
   const match = output.match(
-    /https:\/\/github\.com\/[^/]+\/[^/]+\/issues\/(\d+)\s*$/
+    /https:\/\/github\.com\/[^/]+\/[^/]+\/issues\/(\d+)\s*$/,
   );
 
   if (!match) {
     throw new Error(
-      `Could not determine issue number from GitHub output:\n${output}`
+      `Could not determine issue number from GitHub output:\n${output}`,
     );
   }
 
@@ -252,7 +264,7 @@ function getIssueId(repo, issueNumber) {
 
   if (!owner || !name) {
     throw new Error(
-      `Invalid GitHub repository: "${repo}". Expected owner/repository.`
+      `Invalid GitHub repository: "${repo}". Expected owner/repository.`,
     );
   }
 
@@ -290,17 +302,15 @@ function getIssueId(repo, issueNumber) {
       `Failed to retrieve issue ID:\n${JSON.stringify(
         response.errors,
         null,
-        2
-      )}`
+        2,
+      )}`,
     );
   }
 
   const issue = response.data.repository.issue;
 
   if (!issue) {
-    throw new Error(
-      `Could not find ${repo} #${issueNumber}.`
-    );
+    throw new Error(`Could not find ${repo} #${issueNumber}.`);
   }
 
   return issue.id;
@@ -346,8 +356,8 @@ function addIssueToProject(projectId, issueId) {
       `Failed to add issue to Project #${PROJECT_NUMBER}:\n${JSON.stringify(
         response.errors,
         null,
-        2
-      )}`
+        2,
+      )}`,
     );
   }
 
@@ -357,12 +367,7 @@ function addIssueToProject(projectId, issueId) {
 /*
  * Set Status = Product Backlog.
  */
-function setProjectStatus(
-  projectId,
-  itemId,
-  fieldId,
-  optionId
-) {
+function setProjectStatus(projectId, itemId, fieldId, optionId) {
   const mutation = `
     mutation(
       $projectId: ID!,
@@ -406,35 +411,24 @@ function setProjectStatus(
 
   if (response.errors) {
     throw new Error(
-      `Failed to set Status:\n${JSON.stringify(
-        response.errors,
-        null,
-        2
-      )}`
+      `Failed to set Status:\n${JSON.stringify(response.errors, null, 2)}`,
     );
   }
 }
 
 /*
- * Set a Project text field.
+ * Set Module.
  *
- * This is used for:
- *
- * - Module
- * - User Story
+ * Module is a Project text field.
  */
-function setProjectTextField(
-  projectId,
-  itemId,
-  fieldId,
-  value,
-  fieldName
-) {
+function setModule(projectId, itemId, fieldId, module) {
   /*
-   * Empty text fields are valid, but there is no reason
-   * to make a GitHub API call for an empty value.
+   * Empty Module is allowed.
+   *
+   * There is no reason to make a GitHub API
+   * call when there is no Module value.
    */
-  if (!value) {
+  if (!module) {
     return;
   }
 
@@ -474,18 +468,14 @@ function setProjectTextField(
     "-f",
     `fieldId=${fieldId}`,
     "-f",
-    `text=${value}`,
+    `text=${module}`,
   ]);
 
   const response = JSON.parse(output);
 
   if (response.errors) {
     throw new Error(
-      `Failed to set ${fieldName}:\n${JSON.stringify(
-        response.errors,
-        null,
-        2
-      )}`
+      `Failed to set Module:\n${JSON.stringify(response.errors, null, 2)}`,
     );
   }
 }
@@ -494,19 +484,14 @@ function setProjectTextField(
  * Write the created issue number into:
  *
  * Sprint Backlog → Github Issue
- *
  * Column D.
  */
-async function writeIssueNumber(
-  sheets,
-  spreadsheetId,
-  rowNumber,
-  issueNumber
-) {
+async function writeIssueNumber(sheets, spreadsheetId, rowNumber, issueNumber) {
   await sheets.spreadsheets.values.update({
     spreadsheetId,
     range: `'${SHEET_NAME}'!D${rowNumber}`,
     valueInputOption: "USER_ENTERED",
+
     requestBody: {
       values: [[issueNumber]],
     },
@@ -514,19 +499,14 @@ async function writeIssueNumber(
 }
 
 async function main() {
-  const spreadsheetId =
-    process.env.GOOGLE_SPREADSHEET_ID;
+  const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
 
   if (!spreadsheetId) {
-    throw new Error(
-      "GOOGLE_SPREADSHEET_ID is not set."
-    );
+    throw new Error("GOOGLE_SPREADSHEET_ID is not set.");
   }
 
   if (!process.env.GOOGLE_SERVICE_ACCOUNT) {
-    throw new Error(
-      "GOOGLE_SERVICE_ACCOUNT is not set."
-    );
+    throw new Error("GOOGLE_SERVICE_ACCOUNT is not set.");
   }
 
   console.log("========================================");
@@ -548,45 +528,26 @@ async function main() {
    */
   console.log("\nReading Sprint Backlog...");
 
-  const rows = await getSheetData(
-    sheets,
-    spreadsheetId
-  );
+  const rows = await getSheetData(sheets, spreadsheetId);
 
   if (rows.length === 0) {
-    throw new Error(
-      `The "${SHEET_NAME}" sheet is empty.`
-    );
+    throw new Error(`The "${SHEET_NAME}" sheet is empty.`);
   }
 
-  console.log(
-    `Found ${rows.length - 1} spreadsheet rows.`
-  );
+  console.log(`Found ${rows.length - 1} spreadsheet rows.`);
 
   /*
    * Get Project information once.
    */
-  console.log(
-    "\nReading GitHub Project configuration..."
-  );
+  console.log("\nReading GitHub Project configuration...");
 
   const project = getProjectInfo();
 
-  console.log(
-    `Project #${PROJECT_NUMBER} found.`
-  );
+  console.log(`Project #${PROJECT_NUMBER} found.`);
 
-  console.log(
-    `Status field: ${project.statusFieldId}`
-  );
+  console.log(`Status field: ${project.statusFieldId}`);
 
-  console.log(
-    `Module field: ${project.moduleFieldId}`
-  );
-
-  console.log(
-    `User Story field: ${project.userStoryFieldId}`
-  );
+  console.log(`Module field: ${project.moduleFieldId}`);
 
   let created = 0;
   let skipped = 0;
@@ -599,23 +560,23 @@ async function main() {
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
 
-    const pbId =
-      row[COLUMNS.pbId]?.trim() || "";
+    /*
+     * Read and clean all relevant cells.
+     *
+     * This automatically converts #N/A and
+     * other spreadsheet errors to "".
+     */
+    const pbId = cleanCellValue(row[COLUMNS.pbId]);
 
-    const githubIssue =
-      row[COLUMNS.githubIssue]?.trim() || "";
+    const githubIssue = cleanCellValue(row[COLUMNS.githubIssue]);
 
-    const githubRepo =
-      row[COLUMNS.githubRepo]?.trim() || "";
+    const githubRepo = cleanCellValue(row[COLUMNS.githubRepo]);
 
-    const module =
-      row[COLUMNS.module]?.trim() || "";
+    const module = cleanCellValue(row[COLUMNS.module]);
 
-    const functionality =
-      row[COLUMNS.functionality]?.trim() || "";
+    const functionality = cleanCellValue(row[COLUMNS.functionality]);
 
-    const userStory =
-      row[COLUMNS.userStory]?.trim() || "";
+    const userStory = cleanCellValue(row[COLUMNS.userStory]);
 
     /*
      * ------------------------------------------
@@ -634,12 +595,11 @@ async function main() {
     /*
      * 2. GitHub Issue must be blank.
      *
-     * This prevents duplicates when the issue
-     * has already been successfully linked.
+     * This prevents duplicates.
      */
     if (githubIssue) {
       console.log(
-        `Skipping row ${i + 1}: PB ID ${pbId} already has GitHub Issue #${githubIssue}.`
+        `Skipping row ${i + 1}: PB ID ${pbId} already has GitHub Issue #${githubIssue}.`,
       );
 
       skipped++;
@@ -648,11 +608,12 @@ async function main() {
 
     /*
      * 3. GitHub Repo must exist.
+     *
+     * #N/A is already converted to ""
+     * by cleanCellValue().
      */
     if (!githubRepo) {
-      console.log(
-        `Skipping row ${i + 1}: PB ID ${pbId} has no GitHub Repo.`
-      );
+      console.log(`Skipping row ${i + 1}: PB ID ${pbId} has no GitHub Repo.`);
 
       skipped++;
       continue;
@@ -661,12 +622,11 @@ async function main() {
     /*
      * 4. Functionality must exist.
      *
-     * This becomes the GitHub Issue title.
+     * Functionality becomes the GitHub
+     * Issue title.
      */
     if (!functionality) {
-      console.log(
-        `Skipping row ${i + 1}: PB ID ${pbId} has no Functionality.`
-      );
+      console.log(`Skipping row ${i + 1}: PB ID ${pbId} has no Functionality.`);
 
       skipped++;
       continue;
@@ -688,36 +648,25 @@ async function main() {
 
     /*
      * 1. Create GitHub Issue.
+     *
+     * Functionality → title
+     * User Story    → description
      */
-    const issue = createGitHubIssue(
-      githubRepo,
-      functionality
-    );
+    const issue = createGitHubIssue(githubRepo, functionality, userStory);
 
-    console.log(
-      `Created ${githubRepo} #${issue.number}`
-    );
+    console.log(`Created ${githubRepo} #${issue.number}`);
 
     /*
      * 2. Get internal GitHub Issue ID.
      */
-    const issueId = getIssueId(
-      githubRepo,
-      Number(issue.number)
-    );
+    const issueId = getIssueId(githubRepo, Number(issue.number));
 
     /*
      * 3. Add Issue to Project #4.
      */
-    const projectItemId =
-      addIssueToProject(
-        project.projectId,
-        issueId
-      );
+    const projectItemId = addIssueToProject(project.projectId, issueId);
 
-    console.log(
-      `Added #${issue.number} to Project #${PROJECT_NUMBER}.`
-    );
+    console.log(`Added #${issue.number} to Project #${PROJECT_NUMBER}.`);
 
     /*
      * 4. Set Status = Product Backlog.
@@ -726,68 +675,26 @@ async function main() {
       project.projectId,
       projectItemId,
       project.statusFieldId,
-      project.productBacklogOptionId
+      project.productBacklogOptionId,
     );
 
-    console.log(
-      `Set #${issue.number} status to Product Backlog.`
-    );
+    console.log(`Set #${issue.number} status to Product Backlog.`);
 
     /*
      * 5. Set Module.
-     *
-     * Sprint Backlog column F
-     * → GitHub Project Module field
      */
-    setProjectTextField(
-      project.projectId,
-      projectItemId,
-      project.moduleFieldId,
-      module,
-      "Module"
-    );
+    setModule(project.projectId, projectItemId, project.moduleFieldId, module);
 
     if (module) {
-      console.log(
-        `Set Module for #${issue.number}: ${module}`
-      );
+      console.log(`Set Module for #${issue.number}: ${module}`);
     }
 
     /*
-     * 6. Set User Story.
-     *
-     * Sprint Backlog column H
-     * → GitHub Project User Story field
+     * 6. Write issue number back to Sheets.
      */
-    setProjectTextField(
-      project.projectId,
-      projectItemId,
-      project.userStoryFieldId,
-      userStory,
-      "User Story"
-    );
+    await writeIssueNumber(sheets, spreadsheetId, i + 1, issue.number);
 
-    if (userStory) {
-      console.log(
-        `Set User Story for #${issue.number}.`
-      );
-    }
-
-    /*
-     * 7. Write issue number back to Sheets.
-     *
-     * Sprint Backlog column D.
-     */
-    await writeIssueNumber(
-      sheets,
-      spreadsheetId,
-      i + 1,
-      issue.number
-    );
-
-    console.log(
-      `Wrote #${issue.number} to Sprint Backlog row ${i + 1}.`
-    );
+    console.log(`Wrote #${issue.number} to Sprint Backlog row ${i + 1}.`);
 
     created++;
   }
@@ -803,5 +710,6 @@ async function main() {
 main().catch((error) => {
   console.error("\nIssue creation failed:");
   console.error(error);
+
   process.exit(1);
 });
