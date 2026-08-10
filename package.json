@@ -1,0 +1,23 @@
+{
+  "name": "madayawgas-automation",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/madayawgas/madayawgas-automation.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/madayawgas/madayawgas-automation/issues"
+  },
+  "homepage": "https://github.com/madayawgas/madayawgas-automation#readme",
+  "dependencies": {
+    "googleapis": "^174.0.1"
+  }
+}
