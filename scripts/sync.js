@@ -282,7 +282,7 @@ function collectRowUpdates(rowNumber, row, githubItem) {
    */
   const currentDateEnd = row[COLUMNS.dateEnd] || "";
 
-  if (githubItem.status === "Done" && !currentDateEnd) {
+  if (githubItem.status === "Done" && currentDateEnd !== getToday()) {
     updates.push({
       range: `'${SHEET_NAME}'!J${rowNumber}`,
       value: getToday(),
