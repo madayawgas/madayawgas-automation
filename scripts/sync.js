@@ -210,49 +210,47 @@ function getAssignees(assignees) {
     .join(", ");
 }
 
-async function updateRow(
-  sheets,
-  spreadsheetId,
-  rowNumber,
-  row,
-  githubItem
-) {
+function collectRowUpdates(rowNumber, row, githubItem) {
   const updates = [];
 
   /*
-   * Only update a field if GitHub actually has a value.
+   * Only update a field when:
    *
-   * This prevents:
+   * 1. GitHub has a value
+   * 2. The value is different from the current Sheet value
    *
-   * GitHub Module = ""
-   *       ↓
-   * Sheet Module gets erased
-   *
-   * Instead, the existing Sheet value is preserved.
+   * This prevents unnecessary Google Sheets writes.
    */
 
-  if (githubItem.sprint) {
+  const currentSprint = row[COLUMNS.sprint] || "";
+  const currentModule = row[COLUMNS.module] || "";
+  const currentAssigned = row[COLUMNS.assigned] || "";
+  const currentStatus = row[COLUMNS.status] || "";
+
+  const newAssigned = getAssignees(githubItem.assignees);
+
+  if (githubItem.sprint && githubItem.sprint !== currentSprint) {
     updates.push({
       range: `'${SHEET_NAME}'!B${rowNumber}`,
       value: githubItem.sprint,
     });
   }
 
-  if (githubItem.module) {
+  if (githubItem.module && githubItem.module !== currentModule) {
     updates.push({
       range: `'${SHEET_NAME}'!F${rowNumber}`,
       value: githubItem.module,
     });
   }
 
-  if (githubItem.assignees.length > 0) {
+  if (githubItem.assignees.length > 0 && newAssigned !== currentAssigned) {
     updates.push({
       range: `'${SHEET_NAME}'!K${rowNumber}`,
-      value: getAssignees(githubItem.assignees),
+      value: newAssigned,
     });
   }
 
-  if (githubItem.status) {
+  if (githubItem.status && githubItem.status !== currentStatus) {
     updates.push({
       range: `'${SHEET_NAME}'!L${rowNumber}`,
       value: githubItem.status,
@@ -262,8 +260,9 @@ async function updateRow(
   /*
    * Date Start:
    *
-   * Only set when the GitHub status is In progress
-   * AND the Sheet does not already have a start date.
+   * Only set when:
+   * - GitHub status is In progress
+   * - Sheet does not already have a start date
    */
   const currentDateStart = row[COLUMNS.dateStart] || "";
 
@@ -277,8 +276,9 @@ async function updateRow(
   /*
    * Date End:
    *
-   * Only set when the GitHub status is Done
-   * AND the Sheet does not already have an end date.
+   * Only set when:
+   * - GitHub status is Done
+   * - Sheet does not already have an end date
    */
   const currentDateEnd = row[COLUMNS.dateEnd] || "";
 
@@ -289,25 +289,7 @@ async function updateRow(
     });
   }
 
-  if (updates.length === 0) {
-    return;
-  }
-
-  await sheets.spreadsheets.values.batchUpdate({
-    spreadsheetId,
-    requestBody: {
-      valueInputOption: "USER_ENTERED",
-
-      data: updates.map((update) => ({
-        range: update.range,
-        values: [[update.value]],
-      })),
-    },
-  });
-
-  console.log(
-    `Updated row ${rowNumber}: ${githubItem.githubRepo} #${githubItem.githubIssue}`
-  );
+  return updates;
 }
 
 async function main() {
@@ -351,6 +333,9 @@ async function main() {
   let linkedRows = 0;
   let updatedRows = 0;
   let skippedRows = 0;
+  let totalCellUpdates = 0;
+
+  const pendingUpdates = [];
 
   /*
    * Start at row 2.
@@ -366,8 +351,6 @@ async function main() {
      * No GitHub Issue or Repo means this PBI
      * has not been linked to GitHub yet.
      *
-     * This is intentional:
-     *
      * Sheets-only planning row → IGNORE
      */
     if (!githubIssue || !githubRepo) {
@@ -382,8 +365,7 @@ async function main() {
      */
     const githubItem = githubItems.find(
       (item) =>
-        item.githubIssue === githubIssue &&
-        item.githubRepo === githubRepo
+        item.githubIssue === githubIssue && item.githubRepo === githubRepo,
     );
 
     /*
@@ -393,28 +375,49 @@ async function main() {
      * Don't modify anything.
      */
     if (!githubItem) {
-      console.log(
-        `No GitHub Project match: ${githubRepo} #${githubIssue}`
-      );
+      console.log(`No GitHub Project match: ${githubRepo} #${githubIssue}`);
 
       continue;
     }
 
-    const beforeUpdates = JSON.stringify(row);
+    const updates = collectRowUpdates(i + 1, row, githubItem);
 
-    await updateRow(
-      sheets,
-      spreadsheetId,
-      i + 1,
-      row,
-      githubItem
+    if (updates.length === 0) {
+      continue;
+    }
+
+    updatedRows++;
+    totalCellUpdates += updates.length;
+
+    pendingUpdates.push(...updates);
+
+    console.log(
+      `Queued row ${i + 1}: ${githubRepo} #${githubIssue} (${updates.length} cell${updates.length === 1 ? "" : "s"})`,
+    );
+  }
+
+  /*
+   * Perform ONE Google Sheets API write for all changes.
+   */
+  if (pendingUpdates.length > 0) {
+    console.log(
+      `\nWriting ${pendingUpdates.length} changed cells to Google Sheets...`,
     );
 
-    const afterUpdates = JSON.stringify(row);
+    await sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        valueInputOption: "USER_ENTERED",
+        data: pendingUpdates.map((update) => ({
+          range: update.range,
+          values: [[update.value]],
+        })),
+      },
+    });
 
-    if (beforeUpdates !== afterUpdates) {
-      updatedRows++;
-    }
+    console.log(`Successfully updated ${pendingUpdates.length} cells.`);
+  } else {
+    console.log("\nNo changes detected. Nothing to update.");
   }
 
   console.log("\n========================================");
@@ -423,7 +426,8 @@ async function main() {
 
   console.log(`Linked Sheet rows: ${linkedRows}`);
   console.log(`Planning-only rows skipped: ${skippedRows}`);
-  console.log(`Rows processed: ${updatedRows}`);
+  console.log(`Rows with changes: ${updatedRows}`);
+  console.log(`Cells changed: ${totalCellUpdates}`);
 }
 
 main().catch((error) => {
