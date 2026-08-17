@@ -250,12 +250,17 @@ function collectRowUpdates(rowNumber, row, githubItem) {
     });
   }
 
-  if (githubItem.status && githubItem.status !== currentStatus) {
-    updates.push({
-      range: `'${SHEET_NAME}'!L${rowNumber}`,
-      value: githubItem.status,
-    });
-  }
+  const sheetStatus =
+  githubItem.status === "Sprint Backlog"
+    ? "Pending"
+    : githubItem.status;
+
+if (sheetStatus && sheetStatus !== currentStatus) {
+  updates.push({
+    range: `'${SHEET_NAME}'!L${rowNumber}`,
+    value: sheetStatus,
+  });
+}
 
   /*
    * Date Start:
